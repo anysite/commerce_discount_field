@@ -1,0 +1,14 @@
+<?php
+
+
+function discount_field_field_schema($field) {
+  $columns = array(
+    'number' => array('type' => 'int', 'not null' => FALSE, 'size' => 'big'),
+    'discount' => array('type' => 'text', 'not null' => FALSE),
+    'percents_or_fixed' => array('type' => 'int', 'not null' => FALSE, 'size' => 'tiny'),
+    'fixed_amount' => array('type' => 'int', 'not null' => FALSE, 'size' => 'tiny'),
+    );
+  return array(
+    'columns' => $columns,
+  );
+}

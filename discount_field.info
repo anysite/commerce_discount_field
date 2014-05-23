@@ -1,0 +1,11 @@
+name = Commerce Discount Field
+description = Define field to discount per product
+core = 7.x
+
+configure = admin/config/discount_field
+
+dependencies[] = number
+dependencies[] = entity
+dependencies[] = commerce_line_item
+
+package = Commerce

@@ -1,0 +1,9 @@
+.field-type-discount-field-per-item div.fieldset-wrapper {
+padding: 2px;
+}
+.field-type-discount-field-per-item .form-text {
+width: 150px;
+}
+.field-type-discount-field-per-item div.fieldset-wrapper > div>span {
+padding: 0 16px;
+}

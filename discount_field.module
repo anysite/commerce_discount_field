@@ -1,0 +1,403 @@
+<?php
+
+define('DISCOUNT_FIELD_FIELD_NAME', 'discount_field_per_item');
+function discount_field_init() {
+  if(!variable_get('discount_field_field_added', 0)){
+    module_load_include('install', 'discount_field', 'discount_field');
+   // discount_field_install();
+    variable_set('discount_field_field_added', 1);
+    }
+  //module_load_include('install', 'discount_field', 'discount_field');
+  //discount_field_install();
+  }
+/**
+ * Implements hook_menu().
+ *
+ * 
+ */
+function discount_field_menu() {
+  return array(
+    'admin/config/discount_field' => array(
+      'title' => array('Add discount field to products'),
+      'page arguments' => array('discount_field_add_to_products'),
+      'page callback' => array('drupal_get_form'),
+      'access arguments' => array('administer product types'),
+      ),
+    );
+  }
+/**
+ * Implements hook_theme().
+ *
+ * 
+ */
+function discount_field_theme() {
+return array(
+  'discount_field_field' =>  array('variables' => array(
+    'number' => NULL,
+    'discount_field_field_formatter_info' => NULL,
+    'percents_or_fixed' => NULL,
+    ),
+  ),
+  );  
+}
+
+/**
+ * Implements hook_field_info().
+ *
+ * Provides the description of the field.
+ */
+function discount_field_field_info() {
+  $return  = array();
+    // We name our field as the associative name of the array.
+  $return[DISCOUNT_FIELD_FIELD_NAME] = array(
+    'label' => t('discount per product field'),
+    'no_ui' => TRUE,
+    'description' => t('Can define discount per amount to each product separtly'),
+    'default_widget' => 'discount_field_field_widget',
+    'default_formatter' => 'discount_field_field',
+    'property_callbacks' => array('discount_field_property_callback'),
+  );
+  //dpm($return);
+  return $return;
+  
+}
+
+function discount_field_field_is_empty($item, $field) {
+	return FALSE;//empty($item['rgb']);
+}
+
+
+function discount_field_field_formatter_info() {
+  
+  return array(
+    // This formatter just displays the hex value in the color indicated.
+    'discount_field_field' => array(
+      'label' => t('Discount per product field'),
+      'field types' => array(DISCOUNT_FIELD_FIELD_NAME),
+    	),
+	);
+}
+
+
+function discount_field_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  //dpm(array(field, $instance, $langcode, $items, $display));
+  switch ($display['type']) {
+    
+    case 'discount_field_field':
+     $product_wrapper = entity_metadata_wrapper('commerce_product', $entity);
+     $price = $product_wrapper->commerce_price->value();
+     $currency = $price['currency_code'];
+     $price = $price['amount'];
+     $discount_field = $product_wrapper->discount_field_per_item->value();
+     $element = array(
+        '#theme' => 'table',
+        '#header' =>array(t("Product's number"), t('price')),
+        '#empty' => '',
+        '#rows' => array(),
+        );
+   
+      foreach ($items as $delta => $item) {
+        $discount_price_for_row = discount_field_calculate_by_field($discount_field, $item['number'], $price, $currency);
+        //$discount_price_for_row = $price - $discount_price_for_row;
+        $discount_price_for_row = commerce_currency_amount_to_decimal($discount_price_for_row, $currency);
+        $element['#rows'][$delta] = array(
+          $item['number'],
+          $discount_price_for_row * $item['number'],
+          
+         /* '#theme' => 'discount_field_field',
+          '#number' => $item['number'],
+          '#discount' => $item['discount'],
+          '#percents_or_fixed' => $instance['percents_or_fixed'],*/
+        );
+      }
+      return array( 1 => array('#markup' => render($element)));
+      break;
+
+  }
+  
+}
+
+function discount_field_field_widget_info() {
+  return array(
+    'discount_field_field_widget' => array(
+      'label' => t('Discount table'),
+      'field types' => array(DISCOUNT_FIELD_FIELD_NAME),
+    ),
+  );
+}
+
+function discount_field_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+	 
+   switch ($instance['widget']['type']) {
+    case 'discount_field_field_widget':
+    try{
+      $symbol = FALSE;
+      $product = entity_metadata_wrapper('commerce_product', $form['#entity']);
+     $currency = commerce_currency_load($product->commerce_price->value()['currency_code']);
+      $symbol = $currency['symbol'];
+      }
+    catch(EntityMetadataWrapperException $e){}
+    $symbol = $symbol ? $symbol : '$';
+    $form['#validate'][] = 'discount_field_validate_field';
+    $form_state['discount_field_name'] = $instance['field_name'];
+     //  drupal_add_js(drupal_get_path('module','discount_field') . '/discount_field.js');
+      drupal_add_css(drupal_get_path('module', 'discount_field') . '/discount_field.css');
+      $app_elm = array(
+    		'#type' => 'fieldset',
+        '#attributes' => array('class' => array('container-inline')),
+    		'#tree' => TRUE,
+    		);
+      $app_elm['number'] = array(
+      '#title' => t("Product's number"),
+        '#type' => 'textfield',
+        '#default_value' =>  isset($items[$delta]['number']) ? $items[$delta]['number'] : '',
+        );
+       $app_elm['percents_or_fixed'] = array(
+       '#type' => 'select',
+        '#default_value' => array(isset($items[$delta]['percents_or_fixed']) ? $items[$delta]['percents_or_fixed'] : ''),
+        '#options' => array(
+            0  => $symbol,
+            1 => '%',
+            ),
+        );
+       
+      $app_elm['discount'] = array(
+         '#title' => t("Discount"),
+        '#type' => 'textfield',
+        '#default_value' =>  isset($items[$delta]['discount']) ? $items[$delta]['discount'] : '',
+        );
+       $app_elm['fixed_amount'] = array(
+       '#type' => 'checkbox',
+       '#title' => t("Fixed amount"),
+        '#default_value' => isset($items[$delta]['fixed_amount']) ? $items[$delta]['fixed_amount'] : 0,
+        );
+     
+        $element += $app_elm;
+       return $element;
+      }
+
+}
+
+
+function theme_discount_field_field($vars){
+ 
+  $html = '<tr dssd>';
+  $html .= '<td>' . $vars['number'] . '</td>';
+  $html .= '<td>' . $vars['number'] * $vars['discount'] . '</td>';
+  $html .= '</tr>';
+  return $html;
+  } 
+
+function discount_field_property_callback(&$info, $entity_type, $field, $instance, $field_type) {
+  $property = &$info[$entity_type]['bundles'][$instance['bundle']]['properties'][$field['field_name']];
+  $property['getter callback'] = 'discount_field_getter_callback';
+  $property['setter callback'] = 'discount_field_setter_callback';
+  $property['validation callback'] = 'discount_field_validation_callback';
+  $property['type'] = 'unknown';
+  $property['label'] = t('Price per amount field');
+}
+
+function discount_field_getter_callback($entity, array $options, $name, $entity_type, &$context){
+  return isset($entity->{$name}[LANGUAGE_NONE] ) ? $entity->{$name}[LANGUAGE_NONE] : array();
+  }
+
+function discount_field_setter_callback($entity, $name, $items, $langcode, $entity_type){
+  $entity->{$name}[$langcode] = $items;
+  }
+
+function discount_field_validation_callback(){
+  return TRUE;
+  }
+
+///callbacks
+
+function discount_field_add_to_products(){
+  $products_types = commerce_product_types();
+  $form['products'] = array('#tree' => TRUE);
+  foreach($products_types as $products_type_key => $products_type){
+    
+    $form['products'][$products_type_key] = array(
+      '#type' => 'checkbox',
+      '#title' => $products_type['name'],
+      '#default_value' => (integer)field_info_instance('commerce_product', DISCOUNT_FIELD_FIELD_NAME, $products_type_key),
+      );
+    }
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save'),
+    );
+ return $form;
+  }
+
+function discount_field_add_to_products_submit($from, &$form_state){
+    if( ! field_info_field(DISCOUNT_FIELD_FIELD_NAME) ){
+        $field = array(
+          'field_name' => DISCOUNT_FIELD_FIELD_NAME,
+          'type' => DISCOUNT_FIELD_FIELD_NAME,
+          'cardinality' => FIELD_CARDINALITY_UNLIMITED,
+          'translatable' => 0,
+        );
+        field_create_field($field);
+      }
+    $products_types = commerce_product_types();
+    
+    $values = $form_state['values']['products'];
+    
+    foreach($products_types as $products_type_key => $products_type){
+       $is_field =  field_info_instance('commerce_product',DISCOUNT_FIELD_FIELD_NAME, $products_type_key);
+      $want_field = isset($values[$products_type_key]) ? $values[$products_type_key] : FALSE;
+      if($want_field && !$is_field){
+        $instance = array(
+          'field_name' => DISCOUNT_FIELD_FIELD_NAME,
+          'entity_type' => 'commerce_product',
+          'bundle' => $products_type_key,
+          'label' => 'discount_per_amount',
+          'description' => t("Add discounts per items number. The discount applys (by price or percents) to all products or to fixed amount of the when 'fixed amount' choosed"),
+          );
+       
+        field_create_instance($instance);
+        }
+      else if(!$want_field && $is_field){
+        field_delete_instance($is_field);
+        }
+      }
+    
+  drupal_set_message('Configurations saved!');
+  }
+
+
+function discount_field_validate_field(&$form, &$form_state){
+  
+  $check_values = $form_state['values'][$form_state['discount_field_name']][LANGUAGE_NONE];
+  
+  $sort_array = array();
+  foreach ($check_values as $key => $check_value) {
+    if(!is_numeric($key)){
+      continue;
+      }
+    if(!$check_value['number'] || !$check_value['discount']){
+      unset($check_values[$key]);
+      }
+    else if(!is_numeric($check_value['number'])){
+      form_set_error($form_state['discount_field_name'] . '][' . LANGUAGE_NONE . '][' . $key .'][number' ,t('enter just number in those fields'));
+      }
+    else if(!is_numeric($check_value['discount'])){
+      form_set_error($form_state['discount_field_name'] . '][' . LANGUAGE_NONE . '][' . $key .'][discount' ,t('enter just number in those fields'));
+      }
+    else{
+      $sort_array[$check_value['number']] = $check_value;
+      }
+    }
+  //sort the aray by keys (products's number)
+  ksort($sort_array);
+  $sort_array = array_values($sort_array);
+  $value = array();
+  
+  $value[LANGUAGE_NONE] = array();
+  foreach($sort_array as $sort_key => $sort_value){
+    $sort_value['_weight'] = $sort_key;
+    $value[LANGUAGE_NONE][] = $sort_value;
+    }
+  form_set_value($form[DISCOUNT_FIELD_FIELD_NAME], $value, $form_state);
+  }
+
+
+/**
+ * Implementation of hook_commerce_price_component_type_info().
+ * Creates a new discount price component type
+ */
+function discount_field_commerce_price_component_type_info(){
+  return array(
+    'price_per_amount' => array(
+      'title' => t('Price per amount'),
+      'weight' => -10,
+    ),
+  );
+}
+
+/**
+ * Rules action that applies a volume discount to an order
+ * @param commerce_line_item $line_item
+ * @return type
+ */
+function discount_field_calculate($line_item_wrapper){
+  if(is_object($line_item_wrapper)){
+    
+    try{
+      //die('ddd');
+      $amount = $line_item_wrapper->quantity->value();
+     
+      $per_amount = $line_item_wrapper->commerce_product->discount_field_per_item->value();
+      $recent_price = $line_item_wrapper->commerce_product->commerce_price->amount->value();
+     // dpm($line_item_wrapper->commerce_product->commerce_price->currency_code->value());
+      $currency = commerce_currency_load($line_item_wrapper->commerce_product->commerce_price->currency_code->value());
+      $new_price = discount_field_calculate_by_field( $per_amount, $amount, $recent_price, $currency );
+      if($new_price){
+        
+        $new_price -= $recent_price;
+        $line_item_wrapper->commerce_unit_price->data = commerce_price_component_add(
+        $line_item_wrapper->commerce_unit_price->value(), 
+          'volume_discount', 
+          array(
+            'amount' =>  $new_price, 
+            'currency_code' => $currency,
+            'data' => array()
+          ),
+          FALSE // NOT included already in the price
+        );
+      }
+    }
+    catch(EntityMetadataWrapperException $e){
+      }
+    }
+  return 0;
+  }
+
+function discount_field_calculate_by_field($field, $amount, $recent_price, $currency = FALSE){
+  if(!$currency){
+    $currency = commerce_currency_load();
+    }
+  elseif(is_string($currency)){
+    $currency = commerce_currency_load($currency);
+    }
+ 
+ $currency = pow(10, $currency['decimals']);
+ $new_price = FALSE;
+ $field = array_reverse($field);
+ $current_amount = $amount = (float) $amount;
+
+  foreach($field as $part){
+    
+   
+    if($part['number'] <= $current_amount){
+      //if percents_or_fixed == 1 (percents) caculte percernt of old price
+      // else new price is just the old minus discount
+      $new_price_add = $part['percents_or_fixed'] ? ( ($recent_price/100) * (100 - $part['discount'] ) ): ($recent_price - ($part['discount'] * $currency ) ) ;
+      if($part['fixed_amount']){
+        $amount_left = $current_amount% $part['number'];
+        $this_amount = $current_amount - $amount_left;
+        $new_price_add *= $this_amount;
+        $new_price += $new_price_add;
+        $current_amount = $amount_left;
+        
+        }
+      else{ 
+        //we multiply the price by amount because
+        // we will divise it after the loop
+        $new_price_add *= $current_amount;
+        $new_price += $new_price_add;
+        //if this part is not fixed amount,
+        // it would apply to all left products
+        break;
+        } 
+      
+      }
+    
+    }
+ 
+  if($new_price){
+    //now we need to divise the price to get average discount
+    $new_price /= $amount;
+    }
+  return $new_price;
+  }
