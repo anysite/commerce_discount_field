@@ -86,12 +86,14 @@ function discount_field_field_formatter_view($entity_type, $entity, $field, $ins
     case 'discount_field_field':
      $product_wrapper = entity_metadata_wrapper('commerce_product', $entity);
      $price = $product_wrapper->commerce_price->value();
-     $currency = $price['currency_code'];
+     dpm($price['currency_code']);
+     $currency = commerce_currency_load($price['currency_code']);
+
      $price = $price['amount'];
      $discount_field = $product_wrapper->discount_field_per_item->value();
      $element = array(
         '#theme' => 'table',
-        '#header' =>array(t("Product's number"), t('price')),
+        '#header' =>array(t("Product's number"), t('price'),t('Discount in percents')),
         '#empty' => '',
         '#rows' => array(),
         );
@@ -99,10 +101,12 @@ function discount_field_field_formatter_view($entity_type, $entity, $field, $ins
       foreach ($items as $delta => $item) {
         $discount_price_for_row = discount_field_calculate_by_field($discount_field, $item['number'], $price, $currency);
         //$discount_price_for_row = $price - $discount_price_for_row;
-        $discount_price_for_row = commerce_currency_amount_to_decimal($discount_price_for_row, $currency);
+        $old_price_format = commerce_currency_format($price * $item['number'], $currency['code']);
+        $new_price_format = commerce_currency_format($discount_price_for_row * $item['number'], $currency['code']);
         $element['#rows'][$delta] = array(
           $item['number'],
-          $discount_price_for_row * $item['number'],
+          "<span class='discount-field-old-price'>$old_price_format</span><span class='discount-field-new-price'>$new_price_format</span>"  ,
+          floor(100 -( ($discount_price_for_row/$price)*100)) .'%',
           
          /* '#theme' => 'discount_field_field',
           '#number' => $item['number'],
@@ -110,6 +114,7 @@ function discount_field_field_formatter_view($entity_type, $entity, $field, $ins
           '#percents_or_fixed' => $instance['percents_or_fixed'],*/
         );
       }
+       drupal_add_css(drupal_get_path('module', 'discount_field') . '/discount_field.css');
       return array( 1 => array('#markup' => render($element)));
       break;
 
@@ -251,7 +256,7 @@ function discount_field_add_to_products_submit($from, &$form_state){
           'field_name' => DISCOUNT_FIELD_FIELD_NAME,
           'entity_type' => 'commerce_product',
           'bundle' => $products_type_key,
-          'label' => 'discount_per_amount',
+          'label' => 'Discount per amount',
           'description' => t("Add discounts per items number. The discount applys (by price or percents) to all products or to fixed amount of the when 'fixed amount' choosed"),
           );
        
@@ -354,13 +359,14 @@ function discount_field_calculate($line_item_wrapper){
   }
 
 function discount_field_calculate_by_field($field, $amount, $recent_price, $currency = FALSE){
+   dpm($currency);
   if(!$currency){
     $currency = commerce_currency_load();
     }
   elseif(is_string($currency)){
     $currency = commerce_currency_load($currency);
     }
- 
+
  $currency = pow(10, $currency['decimals']);
  $new_price = FALSE;
  $field = array_reverse($field);
