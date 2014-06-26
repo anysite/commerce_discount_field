@@ -76,7 +76,7 @@ function discount_field_field_formatter_info() {
       'field types' => array(DISCOUNT_FIELD_FIELD_NAME),
       ),
     'discount_field_discount' => array(
-      'label' => t('Formatted amount'),
+      'label' => t('Formatted amount with discount field'),
       'field types' => array('commerce_price'),
       'settings' => array('type'=> 'fixed'),
     ),
