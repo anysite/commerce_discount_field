@@ -2,6 +2,7 @@
 
 define('DISCOUNT_FIELD_FIELD_NAME', 'discount_field_per_item');
 function discount_field_init() {
+ // _field_info_collate_types(TRUE);
   if(!variable_get('discount_field_field_added', 0)){
     module_load_include('install', 'discount_field', 'discount_field');
    // discount_field_install();
@@ -68,14 +69,20 @@ function discount_field_field_is_empty($item, $field) {
 
 
 function discount_field_field_formatter_info() {
-  
-  return array(
-    // This formatter just displays the hex value in the color indicated.
+  //drupal_set_message('ddd');
+  $formatters = array(
     'discount_field_field' => array(
-      'label' => t('Discount per product field'),
+      'label' => t("Price's table"),
       'field types' => array(DISCOUNT_FIELD_FIELD_NAME),
-    	),
-	);
+      ),
+    'discount_field_discount' => array(
+      'label' => t('Formatted amount'),
+      'field types' => array('commerce_price'),
+      'settings' => array('type'=> 'fixed'),
+    ),
+  );
+  //dpm($formatters);
+  return $formatters;
 }
 
 
@@ -86,7 +93,7 @@ function discount_field_field_formatter_view($entity_type, $entity, $field, $ins
     case 'discount_field_field':
      $product_wrapper = entity_metadata_wrapper('commerce_product', $entity);
      $price = $product_wrapper->commerce_price->value();
-     dpm($price['currency_code']);
+     //dpm($price['currency_code']);
      $currency = commerce_currency_load($price['currency_code']);
 
      $price = $price['amount'];
@@ -117,6 +124,44 @@ function discount_field_field_formatter_view($entity_type, $entity, $field, $ins
        drupal_add_css(drupal_get_path('module', 'discount_field') . '/discount_field.css');
       return array( 1 => array('#markup' => render($element)));
       break;
+    case 'discount_field_discount':
+      
+      if($entity_type == 'commerce_line_item'){
+         $line_item_wrapper = entity_metadata_wrapper('commerce_line_item', $entity);
+        $product_wrapper = $line_item_wrapper->commerce_product;
+        
+        if(!array_key_exists('discount_field_per_item',$product_wrapper->getPropertyInfo())){
+          $display['type'] = 'commerce_price_formatted_amount';
+          commerce_price_field_formatter_prepare_view($entity_type, $entity, $field, $instance, $langcode, $items, $display);
+          return commerce_price_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display);
+          
+        }
+        //dpm($line_item_wrapper->getPropertyInfo());
+        $quantity = intval($line_item_wrapper->quantity->value());
+        $price = $line_item_wrapper->commerce_total->value();
+        $price = $price['amount'] / $quantity;
+        $discount_field = $product_wrapper->discount_field_per_item->value();
+        $discount_price_for_row = discount_field_calculate_by_field($discount_field, $quantity, $price, $currency);
+        if(! $discount_price_for_row){
+          $discount_price_for_row = $price;
+          }
+       // dpm(__LINE__ . ' ' . $discount_price_for_row. ' > ' .$quantity);
+        if($display['settings']['type'] == 'percents'){
+          $return = ($discount_price_for_row/$price * 100). '%';
+          }
+        else if($display['settings']['type'] == 'price_with_discount'){
+          $return = $discount_price_for_row  * $quantity;
+        //   dpm(__LINE__ . ' ' . $return);
+          $return = commerce_currency_format($return, $currency['code']);
+          }
+         else if($display['settings']['type'] == 'fixed'){
+          $return = ($price - $discount_price_for_row)  * $quantity;
+          //dpm($return);
+          $return = commerce_currency_format($return, $currency['code']);
+          }
+        return array( 1 => array('#markup' => $return ) );
+        }
+      break;
 
   }
   
@@ -138,8 +183,11 @@ function discount_field_field_widget_form(&$form, &$form_state, $field, $instanc
     try{
       $symbol = FALSE;
       $product = entity_metadata_wrapper('commerce_product', $form['#entity']);
-     $currency = commerce_currency_load($product->commerce_price->value()['currency_code']);
-      $symbol = $currency['symbol'];
+     $currency = $product->commerce_price->value();
+     $currency = commerce_currency_load($currency['currency_code']);
+     $symbol = $currency['symbol'];
+     $currency = $currency['code'];
+      
       }
     catch(EntityMetadataWrapperException $e){}
     $symbol = $symbol ? $symbol : '$';
@@ -182,7 +230,31 @@ function discount_field_field_widget_form(&$form, &$form_state, $field, $instanc
       }
 
 }
-
+ /*
+ * Implements hook_field_formatter_settings_form().
+ */
+function discount_field_field_formatter_settings_form($field, $instance, $view_mode, $form, &$form_state) {
+  //This gets the view_mode where our settings are stored
+  $display = $instance['display'][$view_mode];
+  //This gets the actual settings
+  $settings = $display['settings'];
+  //Initialize the element variable
+  $element = array();
+  //Add your select box
+  //dpm($instance);
+  $element['type'] = array(
+    '#type'           => 'select',   
+    '#title'          => t('Discount show type'),                   
+    '#description'    => t('Select the way discount would be displaing'),    
+    '#default_value'  => $settings['type'],
+    '#options'        => array(
+      'fixed'  => 'fixed',
+      'percents' => 'percents',
+      'price_with_discount'  => 'Price with discount',
+    ),
+  );
+  return $element;
+}
 
 function theme_discount_field_field($vars){
  
@@ -335,17 +407,22 @@ function discount_field_calculate($line_item_wrapper){
       $per_amount = $line_item_wrapper->commerce_product->discount_field_per_item->value();
       $recent_price = $line_item_wrapper->commerce_product->commerce_price->amount->value();
      // dpm($line_item_wrapper->commerce_product->commerce_price->currency_code->value());
-      $currency = commerce_currency_load($line_item_wrapper->commerce_product->commerce_price->currency_code->value());
+     $currency = $line_item_wrapper->commerce_product->commerce_price->currency_code->value();
+     if(is_array($currency)){
+      $currency = $currency['currency_code'];
+      
+
+      }
+      $currency = commerce_currency_load($currency);
       $new_price = discount_field_calculate_by_field( $per_amount, $amount, $recent_price, $currency );
       if($new_price){
-        
         $new_price -= $recent_price;
         $line_item_wrapper->commerce_unit_price->data = commerce_price_component_add(
         $line_item_wrapper->commerce_unit_price->value(), 
           'volume_discount', 
           array(
             'amount' =>  $new_price, 
-            'currency_code' => $currency,
+            'currency_code' => $currency['code'],
             'data' => array()
           ),
           FALSE // NOT included already in the price
@@ -359,7 +436,7 @@ function discount_field_calculate($line_item_wrapper){
   }
 
 function discount_field_calculate_by_field($field, $amount, $recent_price, $currency = FALSE){
-   dpm($currency);
+  // dpm($currency);
   if(!$currency){
     $currency = commerce_currency_load();
     }
