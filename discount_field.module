@@ -139,7 +139,9 @@ function discount_field_field_formatter_view($entity_type, $entity, $field, $ins
         //dpm($line_item_wrapper->getPropertyInfo());
         $quantity = intval($line_item_wrapper->quantity->value());
         $price = $line_item_wrapper->commerce_total->value();
+        $currency = commerce_currency_load($price['currency_code']);
         $price = $price['amount'] / $quantity;
+
         $discount_field = $product_wrapper->discount_field_per_item->value();
         $discount_price_for_row = discount_field_calculate_by_field($discount_field, $quantity, $price, $currency);
         if(! $discount_price_for_row){
@@ -414,12 +416,14 @@ function discount_field_calculate($line_item_wrapper){
 
       }
       $currency = commerce_currency_load($currency);
+      $old_price = $line_item_wrapper->commerce_unit_price->value();
+      $old_price['data'] = commerce_price_component_delete($old_price ,'discount_field');
       $new_price = discount_field_calculate_by_field( $per_amount, $amount, $recent_price, $currency );
       if($new_price){
         $new_price -= $recent_price;
         $line_item_wrapper->commerce_unit_price->data = commerce_price_component_add(
-        $line_item_wrapper->commerce_unit_price->value(), 
-          'volume_discount', 
+          $old_price, 
+          'discount_field', 
           array(
             'amount' =>  $new_price, 
             'currency_code' => $currency['code'],
